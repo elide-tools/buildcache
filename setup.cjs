@@ -49,6 +49,8 @@ async function setup() {
     fs.chmodSync(root, 0o700);
     const password = crypto.randomBytes(32).toString('hex');
     process.stdout.write(`::add-mask::${password}\n`);
+    // Clients may log HTTP headers in diagnostics; mask the transformed secret too.
+    process.stdout.write(`::add-mask::${Buffer.from(`elide:${password}`).toString('base64')}\n`);
     state = path.join(root, 'relay.json');
     fs.writeFileSync(state, JSON.stringify({endpoint: origin.origin, password, namespace}), {mode: 0o600});
     const env = {};
