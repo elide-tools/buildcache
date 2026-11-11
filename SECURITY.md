@@ -17,13 +17,23 @@ These rules cover this HTTP adapter; Bazel's direct BuildBuddy API keys retain
 their existing permissions.
 
 Fork pull requests can carry the base repository's OIDC identity. Repository IDs
-alone do not exclude forks. Consumer workflows restrict private runners and this
-action to trusted pushes, manual runs and same-repository pull requests. Forks
-remain on hosted runners; exact private CI IP firewall rules prevent those
-runners from reaching the gateway. Do not run untrusted code on the private
-fleet, including through `pull_request_target` or a privileged `workflow_run`.
-Maintainers who can run code on these persistent machines are inside the runner
-trust boundary. Cache objects must never contain secrets.
+alone do not exclude forks. Consumer workflows select private runners and this
+action only for trusted pushes, manual runs and same-repository pull requests;
+their normal fork path uses hosted runners without private cache connectivity.
+However, fork authors can edit workflow YAML. The current runner group permits
+public repositories and is not restricted to immutable reusable workflows, so
+workflow conditions and private IP firewall rules are not an enforced fork-code
+sandbox.
+
+The `elide-dev` organization and the public consumers require approval for **all
+external contributors' fork runs**, including returning contributors. Before
+approving, maintainers must review workflow changes and must not approve a fork
+run that selects private runners or otherwise executes untrusted code inside the
+fleet. Stronger unattended fork support requires a restricted immutable reusable
+workflow or a separate isolated runner fleet. Do not use `pull_request_target`
+or a privileged `workflow_run` to execute untrusted code. Maintainers who approve
+private runner jobs are inside this trust boundary. Cache objects must never
+contain secrets.
 
 ## Transport and process isolation
 

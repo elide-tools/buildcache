@@ -27,8 +27,11 @@ OIDC tokens automatically and removes the relay and its temporary Gradle init
 script at job end. The gateway checks the signed issuer, audience, immutable owner
 and repository IDs, event and ref. Each repository/ref has its own cache indexes;
 branches and PRs can fall back to `main`, but cannot write into its index. Consumer
-workflow gates keep fork jobs on hosted runners outside the private network;
-the OIDC repository ID by itself does not distinguish a fork pull request.
+workflow gates normally keep fork jobs on hosted runners outside the private
+network. Fork authors can change workflow YAML, so all external contributors'
+runs also require maintainer approval and review of runner/workflow changes.
+The OIDC repository ID by itself does not distinguish a fork pull request. See
+[the full trust boundary](SECURITY.md#job-identity-and-trust).
 
 Gradle keeps its existing local-cache policy, with an additional remote `HttpBuildCache`.
 The init script reads only job environment variables and preserves existing
