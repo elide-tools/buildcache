@@ -20,10 +20,8 @@ Fork pull requests can carry the base repository's OIDC identity. Repository IDs
 alone do not exclude forks. Consumer workflows select private runners and this
 action only for trusted pushes, manual runs and same-repository pull requests;
 their normal fork path uses hosted runners without private cache connectivity.
-However, fork authors can edit workflow YAML. The current runner group permits
-public repositories and is not restricted to immutable reusable workflows, so
-workflow conditions and private IP firewall rules are not an enforced fork-code
-sandbox.
+However, fork authors can edit workflow YAML, so workflow conditions alone are
+not a sandbox for fork code.
 
 The `elide-dev` organization and the public consumers require approval for **all
 external contributors' fork runs**, including returning contributors. Before
@@ -38,8 +36,9 @@ contain secrets.
 ## Transport and process isolation
 
 Clients connect to an authenticated relay bound only to `127.0.0.1`. Its random
-job password is masked, state files are owner-only, and the child receives a
-minimal environment. Authentication is required for cache requests and shutdown.
+job password is masked, state files are owner-only on POSIX runners (Windows
+relies on the runner temp directory's ACLs; do not share a Windows runner
+account between trust domains), and the child receives a minimal environment. Authentication is required for cache requests and shutdown.
 The relay forwards only cache methods/paths to one configured origin; it never
 follows redirects with the job token. It refreshes tokens before expiry, bounds
 connection/idle waits and aborts upstream work when clients disconnect.
