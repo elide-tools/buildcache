@@ -59,7 +59,12 @@ By default, an unreachable private endpoint leaves existing settings untouched;
 `required: 'true'` makes setup failure fail the job. `enabled` reports success and
 `ELIDE_BUILD_CACHE_ENABLED=true` is exported only after identity verification.
 A later cache outage follows each client's normal remote-cache failure behavior.
-Use a WebDAV-enabled sccache release supporting `SCCACHE_WEBDAV_DISABLE_CREATE_DIR`.
+Use a WebDAV-enabled sccache release. The relay forwards authenticated depth-zero
+PROPFIND and virtual MKCOL requests to the adapter before object uploads. Recursive
+collection listing and DELETE remain forbidden. The runtime-pinned sccache 0.14.0
+is exercised in CI: it must write successfully and hit remotely after a fresh
+daemon and empty local cache. That version does not recognize the formerly
+advertised `SCCACHE_WEBDAV_DISABLE_CREATE_DIR` environment variable.
 
 Both protocols use a small HTTP-to-REAPI gateway on the cache node: opaque keys
 map to upstream BuildBuddy Action Cache entries, and payload bytes live in the

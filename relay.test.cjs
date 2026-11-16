@@ -57,3 +57,19 @@ test('cache origin rejects lookalike private hosts and credential-bearing URLs',
   assert.match(gradleScript(),/System.getenv\('ELIDE_BUILD_CACHE_PASSWORD'\)/);
   assert.doesNotMatch(gradleScript(),/secret|request-token/);
 });
+
+test('WebDAV parent metadata is authenticated, depth-zero only and forwarded with job identity', async t => {
+  const seen=[];
+  const upstream=await listen(t,http.createServer((req,res)=>{
+    seen.push({method:req.method,path:req.url,depth:req.headers.depth,auth:req.headers.authorization});
+    res.writeHead(req.method==='PROPFIND'?207:201);res.end();
+  }));
+  const endpoint=await listen(t,createRelay({endpoint:upstream,password:'secret',namespace:'v1',getToken:async()=> 'signed-token'}));
+  assert.equal((await fetch(endpoint+'/sccache/',{method:'PROPFIND',headers:{Depth:'0'}})).status,401);
+  assert.equal((await fetch(endpoint+'/sccache/',{method:'PROPFIND',headers:{...auth,Depth:'0'}})).status,207);
+  assert.equal((await fetch(endpoint+'/sccache/a/b/',{method:'MKCOL',headers:auth})).status,201);
+  for(const depth of ['1','infinity']) assert.equal((await fetch(endpoint+'/sccache/',{method:'PROPFIND',headers:{...auth,Depth:depth}})).status,400);
+  assert.equal(seen.length,2);
+  assert.deepEqual(seen[0],{method:'PROPFIND',path:'/sccache/',depth:'0',auth:'Bearer signed-token'});
+  assert.equal((await fetch(endpoint+'/sccache/',{method:'DELETE',headers:auth})).status,400);
+});

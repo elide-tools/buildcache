@@ -35,13 +35,15 @@ function createRelay({endpoint, password, namespace, getToken, timeout = 120000,
     const actual = Buffer.from(req.headers.authorization || '');
     if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {res.writeHead(401);res.end();return;}
     if (req.method === 'POST' && req.url === '/_shutdown') {res.writeHead(200);res.end();shutdown();return;}
-    if (!['GET', 'HEAD', 'PUT'].includes(req.method) || !/^\/(gradle|sccache)\/[A-Za-z0-9/_+=.-]+$/.test(req.url) || req.url.includes('..')) {res.writeHead(400);res.end();return;}
+    const metadata = ['PROPFIND', 'MKCOL'].includes(req.method);
+    const validPath = metadata ? /^\/(gradle|sccache)\/[A-Za-z0-9/_+=.-]*$/.test(req.url) : /^\/(gradle|sccache)\/[A-Za-z0-9/_+=.-]+$/.test(req.url);
+    if (!['GET', 'HEAD', 'PUT', 'PROPFIND', 'MKCOL'].includes(req.method) || !validPath || req.url.includes('..') || (req.method === 'PROPFIND' && req.headers.depth !== '0')) {res.writeHead(400);res.end();return;}
     let token;
     try {token = await getToken();} catch {req.resume();res.writeHead(503);res.end('Cache identity unavailable');return;}
     // Fixed origin and a strict path allowlist prevent forwarding job identity
     // to caller-selected hosts. Redirects are returned, never followed.
     const headers = {'authorization': `Bearer ${token}`, 'x-elide-cache-namespace': namespace};
-    for (const name of ['content-length', 'content-type']) if (req.headers[name]) headers[name] = req.headers[name];
+    for (const name of ['content-length', 'content-type', 'depth']) if (req.headers[name]) headers[name] = req.headers[name];
     const upstream = transport.request(new URL(req.url, target), {method: req.method, headers}, response => {
       if (response.statusCode >= 300 && response.statusCode < 400) {response.resume();res.writeHead(502);res.end('Cache redirects are forbidden');return;}
       const outbound = {};
@@ -58,7 +60,7 @@ function createRelay({endpoint, password, namespace, getToken, timeout = 120000,
     upstream.setTimeout(timeout, () => upstream.destroy());
     upstream.on('error', () => {
       if (res.headersSent) res.destroy();
-      else {res.writeHead(req.method === 'PUT' ? 503 : 404);res.end();}
+      else {res.writeHead(['GET', 'HEAD'].includes(req.method) ? 404 : 503);res.end();}
     });
     req.on('aborted', () => upstream.destroy());
     res.on('close', () => {if (!res.writableEnded) upstream.destroy();});
