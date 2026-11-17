@@ -40,7 +40,7 @@ upstream HTTP origin must be a private IPv4 address, or use HTTPS. Private HTTP
 is intended for the GCP VPC, not an Internet-facing cache.
 
 For a WebDAV-enabled sccache build, the action exports `SCCACHE_WEBDAV_ENDPOINT`,
-username/password, `RW_MODE=READ_WRITE` and `DISABLE_CREATE_DIR=true`. sccache and
+username/password and `RW_MODE=READ_WRITE`. sccache and
 Gradle retain their native object compression; bytes are not recompressed by the
 HTTP relay. Configure `RUSTC_WRAPPER=sccache` or your compiler launcher separately.
 Stop an already-running sccache server before changing backend configuration, and
@@ -73,4 +73,4 @@ upstream CAS and index writes complete. Local SSD loss causes cold reads, not
 loss of acknowledged objects, subject to the upstream cache's normal eviction.
 Metrics and service logs flow through the cloud OTel gateway to Datadog.
 
-Validation: `node --test relay.test.cjs`.
+Validation: `node --test relay.test.cjs sccache.test.cjs`.

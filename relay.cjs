@@ -60,7 +60,8 @@ function createRelay({endpoint, password, namespace, getToken, timeout = 120000,
     upstream.setTimeout(timeout, () => upstream.destroy());
     upstream.on('error', () => {
       if (res.headersSent) res.destroy();
-      else {res.writeHead(['GET', 'HEAD'].includes(req.method) ? 404 : 503);res.end();}
+      // Reads degrade to a cache miss; the marker lets setup tell an outage from a real miss.
+      else {res.writeHead(['GET', 'HEAD'].includes(req.method) ? 404 : 503, {'x-elide-relay-error': 'upstream'});res.end();}
     });
     req.on('aborted', () => upstream.destroy());
     res.on('close', () => {if (!res.writableEnded) upstream.destroy();});

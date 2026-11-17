@@ -52,7 +52,7 @@ test('GitHub token refresh is singleflight, scoped and never follows redirects',
   await assert.rejects(tokenSource(env,async()=>({ok:true,json:async()=>({value:'a.'+Buffer.from(JSON.stringify({exp})).toString('base64url')+'.c'})}))());
 });
 test('cache origin rejects lookalike private hosts and credential-bearing URLs',()=>{
-  assert.equal(validateOrigin('http://10.128.0.39:8080').hostname,'10.128.0.39');
+  assert.equal(validateOrigin('http://10.0.0.1:8080').hostname,'10.0.0.1');
   for(const url of ['http://10.evil.example','http://example.com','https://u:p@example.com','https://example.com/path','https://example.com/?secret=x'])assert.throws(()=>validateOrigin(url));
   assert.match(gradleScript(),/System.getenv\('ELIDE_BUILD_CACHE_PASSWORD'\)/);
   assert.doesNotMatch(gradleScript(),/secret|request-token/);
@@ -72,4 +72,14 @@ test('WebDAV parent metadata is authenticated, depth-zero only and forwarded wit
   assert.equal(seen.length,2);
   assert.deepEqual(seen[0],{method:'PROPFIND',path:'/sccache/',depth:'0',auth:'Bearer signed-token'});
   assert.equal((await fetch(endpoint+'/sccache/',{method:'DELETE',headers:auth})).status,400);
+});
+
+test('upstream outage reads as a marked miss so setup cannot mistake it for verified identity', async t => {
+  const dead=http.createServer();dead.listen(0,'127.0.0.1');await once(dead,'listening');
+  const origin=`http://127.0.0.1:${dead.address().port}`;dead.close();await once(dead,'close');
+  const endpoint=await listen(t,createRelay({endpoint:origin,password:'secret',namespace:'v1',getToken:async()=> 'signed-token'}));
+  const miss=await fetch(endpoint+'/sccache/key',{headers:auth});
+  assert.equal(miss.status,404);assert.equal(miss.headers.get('x-elide-relay-error'),'upstream');
+  const write=await fetch(endpoint+'/sccache/key',{method:'PUT',headers:auth,body:'x'});
+  assert.equal(write.status,503);assert.equal(write.headers.get('x-elide-relay-error'),'upstream');
 });

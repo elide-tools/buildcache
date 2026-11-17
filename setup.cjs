@@ -69,6 +69,7 @@ async function setup() {
     const preflight = await fetch(`${endpoint}/sccache/setup-probe-not-present`, {
       headers: {Authorization: `Basic ${Buffer.from(`elide:${password}`).toString('base64')}`}, signal: AbortSignal.timeout(10000),
     });
+    if (preflight.headers.get('x-elide-relay-error')) throw Error('Cache became unreachable during identity check');
     if (![200,404].includes(preflight.status)) throw Error('Cache rejected this job identity');
     const values = {
       ELIDE_BUILD_CACHE_ENABLED: 'true', ELIDE_BUILD_CACHE_PASSWORD: password,
