@@ -1,76 +1,106 @@
 # Shared build cache
 
-Run this action on a runner with network access to the private cache. It configures
-sccache WebDAV and Gradle HTTP caching without distributing a cloud or cache key.
-It does not install sccache, Gradle, a compiler or a JDK.
+A GitHub Action that connects sccache (WebDAV) and Gradle (HTTP build cache) to a
+private shared cache, authenticated with the job's GitHub OIDC identity. No cloud
+or cache key is distributed to the job.
 
-This repository owns the reusable client action. The gateway, Buildbarn and
-Pulumi infrastructure remain in `elide-dev/cloud`. See [SECURITY.md](SECURITY.md)
-for trust boundaries and maintainer controls.
+The action does not install sccache, Gradle, a compiler or a JDK.
+
+## Usage
 
 ```yaml
 permissions:
   contents: read
   id-token: write
-# Place this in a trusted job on a runner with private cache connectivity.
-# Fork pull requests must remain on hosted runners without this setup step.
 steps:
-  # Pin this action to the reviewed full commit SHA.
   - uses: elide-tools/buildcache@<commit-sha>
     with:
       endpoint: ${{ vars.BUILD_CACHE_ENDPOINT }}
-      namespace: v1
 ```
 
-The action starts an authenticated loopback relay for the job. It refreshes GitHub
-OIDC tokens automatically and removes the relay and its temporary Gradle init
-script at job end. The gateway checks the signed issuer, audience, immutable owner
-and repository IDs, event and ref. Each repository/ref has its own cache indexes;
-branches and PRs can fall back to `main`, but cannot write into its index. Consumer
-workflow gates normally keep fork jobs on hosted runners outside the private
-network. Fork authors can change workflow YAML, so all external contributors'
-runs also require maintainer approval and review of runner/workflow changes.
-The OIDC repository ID by itself does not distinguish a fork pull request. See
-[the full trust boundary](SECURITY.md#job-identity-and-trust).
+- Pin the action to a reviewed full commit SHA.
+- Run it in a trusted job, on a runner with network access to the cache.
+- Keep fork pull requests on hosted runners without this step. See
+  [SECURITY.md](SECURITY.md) for the full trust model.
 
-Gradle keeps its existing local-cache policy, with an additional remote `HttpBuildCache`.
-The init script reads only job environment variables and preserves existing
-`GRADLE_USER_HOME` and credentials. The relay's HTTP address is loopback; the
-upstream HTTP origin must be a private IPv4 address, or use HTTPS. Private HTTP
-is intended for the GCP VPC, not an Internet-facing cache.
+### Inputs
 
-For a WebDAV-enabled sccache build, the action exports `SCCACHE_WEBDAV_ENDPOINT`,
-username/password and `RW_MODE=READ_WRITE`. sccache and
-Gradle retain their native object compression; bytes are not recompressed by the
-HTTP relay. Configure `RUSTC_WRAPPER=sccache` or your compiler launcher separately.
-Stop an already-running sccache server before changing backend configuration, and
-remove competing backend settings (such as `SCCACHE_GHA_ENABLED`) explicitly;
-this action does not silently override unrelated cache backends.
+| Input | Default | Description |
+|---|---|---|
+| `endpoint` | required | Cache origin. HTTPS, or HTTP on a literal `10.0.0.0/8` or loopback address. |
+| `namespace` | `v1` | Version namespace for cache keys within a repository and ref. |
+| `gradle` | `true` | Install a temporary Gradle init script. `false` skips it. |
+| `required` | `false` | Fail the job if the cache or GitHub OIDC is unavailable. |
 
-Replace a competing remote output-cache backend when adopting this one; do not
-enable both sccache GHA and WebDAV backends. GitHub Actions archives of Gradle
-`build-cache-*` output should also be disabled on jobs using this remote cache.
-Dependency downloads (npm/Bun packages, Maven dependencies, Go modules), compiler
-installations and workflow artifacts have different purposes and should remain.
-Keep existing local caches for latency and for jobs that cannot use this service.
+### Outputs
 
-`gradle: 'false'` skips the init script. `namespace` versions opaque object keys.
-By default, an unreachable private endpoint leaves existing settings untouched;
-`required: 'true'` makes setup failure fail the job. `enabled` reports success and
-`ELIDE_BUILD_CACHE_ENABLED=true` is exported only after identity verification.
-A later cache outage follows each client's normal remote-cache failure behavior.
-Use a WebDAV-enabled sccache release. The relay forwards authenticated depth-zero
-PROPFIND and virtual MKCOL requests to the adapter before object uploads. Recursive
-collection listing and DELETE remain forbidden. The runtime-pinned sccache 0.14.0
-is exercised in CI: it must write successfully and hit remotely after a fresh
-daemon and empty local cache. That version does not recognize the formerly
-advertised `SCCACHE_WEBDAV_DISABLE_CREATE_DIR` environment variable.
+| Output | Description |
+|---|---|
+| `enabled` | `true` once the cache accepted this job's identity, otherwise `false`. |
+| `endpoint` | URL of the job-local authenticated relay. |
 
-Both protocols use a small HTTP-to-REAPI gateway on the cache node: opaque keys
-map to upstream BuildBuddy Action Cache entries, and payload bytes live in the
-same Buildbarn hot CAS as Bazel inputs. Successful PUT acknowledges only after
-upstream CAS and index writes complete. Local SSD loss causes cold reads, not
-loss of acknowledged objects, subject to the upstream cache's normal eviction.
-Metrics and service logs flow through the cloud OTel gateway to Datadog.
+## How it works
 
-Validation: `node --test relay.test.cjs sccache.test.cjs`.
+The action starts a relay bound to `127.0.0.1` and protected by a random per-job
+password. The relay attaches a short-lived GitHub OIDC token (audience
+`elide-build-cache`) to each request, refreshes it before expiry, and forwards
+only cache methods and paths to the configured origin. It never follows
+redirects. A post-job step shuts the relay down and removes its state and the
+Gradle init script.
+
+The cache gateway verifies the token's signature, issuer, audience, expiry,
+owner and repository IDs, event and ref. Each repository and ref has its own
+cache index: branches and pull requests can read their own entries and `main`'s,
+and can write only their own.
+
+By default, setup failure leaves the job's existing cache configuration
+untouched. `ELIDE_BUILD_CACHE_ENABLED=true` is exported only after the gateway
+has accepted the job's identity. A cache outage later in the job follows each
+client's normal remote-cache failure behavior.
+
+## Gradle
+
+The init script adds a remote `HttpBuildCache` with push enabled and sets
+`-Dorg.gradle.caching=true` in `GRADLE_OPTS`. The existing local-cache policy,
+`GRADLE_USER_HOME` and credentials are preserved; the script reads only job
+environment variables.
+
+## sccache
+
+The action exports `SCCACHE_WEBDAV_ENDPOINT`, `SCCACHE_WEBDAV_USERNAME`,
+`SCCACHE_WEBDAV_PASSWORD`, `SCCACHE_WEBDAV_KEY_PREFIX` and
+`SCCACHE_WEBDAV_RW_MODE=READ_WRITE`.
+
+- Use a WebDAV-enabled sccache release. CI exercises sccache 0.14.0.
+- Set `RUSTC_WRAPPER=sccache` or your compiler launcher yourself.
+- Stop any running sccache server before this step so it picks up the backend.
+- Remove competing backends such as `SCCACHE_GHA_ENABLED`; the action does not
+  override them.
+
+The relay forwards depth-zero `PROPFIND` and `MKCOL` for sccache's directory
+checks. Recursive listing and `DELETE` are rejected.
+
+## Adopting alongside existing caches
+
+- Replace other remote output caches: disable the sccache GHA backend and
+  GitHub Actions archives of Gradle `build-cache-*` output on jobs using this
+  action.
+- Keep dependency caches (npm/Bun, Maven, Go modules), toolchain installs and
+  workflow artifacts. They serve a different purpose.
+- Keep local caches for latency and for jobs that cannot reach this service.
+
+## Durability
+
+Objects keep their native sccache/Gradle compression; the relay does not
+recompress them. A `PUT` is acknowledged only after the backing store has
+committed the object and its index entry, so acknowledged objects survive loss
+of a cache node's local disk, subject to normal eviction.
+
+## Development
+
+```sh
+node --test relay.test.cjs sccache.test.cjs
+```
+
+The action has no npm dependencies. The real-sccache test runs when
+`SCCACHE_TEST_BINARY` points at an sccache binary.
